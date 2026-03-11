@@ -1,0 +1,4 @@
+flask
+pypdf
+requests
+gunicorn
