@@ -1,8 +1,9 @@
-import base64, io, os, tempfile, requests
+import base64, io, os, requests
 from flask import Flask, request, jsonify
 from pypdf import PdfReader, PdfWriter
 from docx import Document
 from datetime import datetime
+from lxml import etree
 
 app = Flask(__name__)
 
@@ -50,21 +51,19 @@ def fill_pdf():
 
 def _ordinal(n):
     n = int(n)
+    suffix = ["th","st","nd","rd","th","th","th","th","th","th"]
+    return f"{n}{suffix[n % 10] if n % 10 < 4 and not (11 <= n % 100 <= 13) else 'th'}"
+
+def _today():
+    d = datetime.today()
+    return f"{_ordinal(d.day)} {d.strftime('%B %Y')}"
+
 def _replace_in_docx(doc, replacements):
-    from lxml import etree
-    body = doc.element
-    xml = etree.tostring(body, encoding='unicode')
+    xml = etree.tostring(doc.element, encoding='unicode')
     for key, val in replacements.items():
         xml = xml.replace(key, val)
-    new_body = etree.fromstring(xml)
-    body.getparent().replace(body, new_body)
-            for cell in row.cells:
-                for para in cell.paragraphs:
-                    for key, val in replacements.items():
-                        if key in para.text:
-                            for run in para.runs:
-                                if key in run.text:
-                                    run.text = run.text.replace(key, val)
+    new_element = etree.fromstring(xml)
+    doc.element.getparent().replace(doc.element, new_element)
 
 @app.route("/generate-dip", methods=["POST"])
 def generate_dip():
