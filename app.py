@@ -1,9 +1,8 @@
-import base64, io, os, requests
+import base64, io, os, requests, zipfile
 from flask import Flask, request, jsonify
 from pypdf import PdfReader, PdfWriter
 from docx import Document
 from datetime import datetime
-from lxml import etree
 
 app = Flask(__name__)
 
@@ -58,12 +57,20 @@ def _today():
     d = datetime.today()
     return f"{_ordinal(d.day)} {d.strftime('%B %Y')}"
 
-def _replace_in_docx(doc, replacements):
-    xml = etree.tostring(doc.element, encoding='unicode')
-    for key, val in replacements.items():
-        xml = xml.replace(key, val)
-    new_element = etree.fromstring(xml)
-    doc.element.getparent().replace(doc.element, new_element)
+def _replace_in_docx_bytes(docx_bytes, replacements):
+    src = io.BytesIO(docx_bytes)
+    out = io.BytesIO()
+    with zipfile.ZipFile(src, 'r') as zin:
+        with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                data = zin.read(item.filename)
+                if item.filename.endswith('.xml') or item.filename.endswith('.rels'):
+                    text = data.decode('utf-8')
+                    for key, val in replacements.items():
+                        text = text.replace(key, val)
+                    data = text.encode('utf-8')
+                zout.writestr(item, data)
+    return out.getvalue()
 
 @app.route("/generate-dip", methods=["POST"])
 def generate_dip():
@@ -77,8 +84,7 @@ def generate_dip():
     resp = requests.get(DIP_TEMPLATE_URL, timeout=30)
     if resp.status_code != 200:
         return jsonify({"error": f"Template download failed: {resp.status_code}"}), 500
-    doc = Document(io.BytesIO(resp.content))
-    _replace_in_docx(doc, {
+    filled = _replace_in_docx_bytes(resp.content, {
         "{{CUSTOMER_NAMES}}": names,
         "{{COMPANY_NAME}}":   data.get("company_name","N/A").strip(),
         "{{LOAN_AMOUNT}}":    amount,
@@ -87,9 +93,7 @@ def generate_dip():
         "{{ADVISER_EMAIL}}":  "paul@313group.co.uk",
         "{{ADVISER_PHONE}}":  "01912286969",
     })
-    buf = io.BytesIO()
-    doc.save(buf)
-    return jsonify({"pdf_base64": base64.b64encode(buf.getvalue()).decode()})
+    return jsonify({"pdf_base64": base64.b64encode(filled).decode()})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
