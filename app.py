@@ -50,22 +50,14 @@ def fill_pdf():
 
 def _ordinal(n):
     n = int(n)
-    suffix = ["th","st","nd","rd","th","th","th","th","th","th"]
-    return f"{n}{suffix[n % 10] if n % 10 < 4 and not (11 <= n % 100 <= 13) else 'th'}"
-
-def _today():
-    d = datetime.today()
-    return f"{_ordinal(d.day)} {d.strftime('%B %Y')}"
-
 def _replace_in_docx(doc, replacements):
-    for para in doc.paragraphs:
-        for key, val in replacements.items():
-            if key in para.text:
-                for run in para.runs:
-                    if key in run.text:
-                        run.text = run.text.replace(key, val)
-    for table in doc.tables:
-        for row in table.rows:
+    from lxml import etree
+    body = doc.element
+    xml = etree.tostring(body, encoding='unicode')
+    for key, val in replacements.items():
+        xml = xml.replace(key, val)
+    new_body = etree.fromstring(xml)
+    body.getparent().replace(body, new_body)
             for cell in row.cells:
                 for para in cell.paragraphs:
                     for key, val in replacements.items():
