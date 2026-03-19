@@ -2,5 +2,12 @@ services:
   - type: web
     name: 313-pdf-filler
     runtime: python
-    buildCommand: apt-get install -y libreoffice && pip install -r requirements.txt
+    packages:
+      - libreoffice
+    buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
+```
+
+Then in **Render Settings → Build Command**, set it back to just:
+```
+pip install -r requirements.txt
