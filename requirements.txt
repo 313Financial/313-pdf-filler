@@ -2,4 +2,4 @@ flask
 pypdf
 requests
 gunicorn
-reportlab
+python-docx
