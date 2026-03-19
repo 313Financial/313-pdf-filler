@@ -6,8 +6,3 @@ services:
       - libreoffice
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
-```
-
-Then in **Render Settings → Build Command**, set it back to just:
-```
-pip install -r requirements.txt
