@@ -7,7 +7,7 @@ from datetime import datetime
 app = Flask(__name__)
 
 TEMPLATE_URL = "https://raw.githubusercontent.com/313Financial/313-pdf-filler/main/Concierge%20Form%20May%202025%20v2%20editable.pdf"
-DIP_TEMPLATE_URL = "https://raw.githubusercontent.com/313Financial/313-pdf-filler/main/DIP_CERT_TEMPLATE_1.docx"
+DIP_TEMPLATE_URL = "https://raw.githubusercontent.com/313Financial/313-pdf-filler/main/DIP_CERT_TEMPLATE.docx"
 
 FIELD_MAP = {
     "borrower_name": "Borrower name", "rate_product": "Rate / product",
@@ -66,6 +66,12 @@ def _replace_in_docx_bytes(docx_bytes, replacements):
                 data = zin.read(item.filename)
                 if item.filename.endswith('.xml') or item.filename.endswith('.rels'):
                     text = data.decode('utf-8')
+                    # Fix missing COMPANY_NAME placeholder on page 1
+                    text = text.replace(
+                        'Company Name:</w:t><w:tab/><w:tab/></w:r></w:p>',
+                        'Company Name:</w:t><w:tab/><w:tab/><w:t>{{COMPANY_NAME}}</w:t></w:r></w:p>',
+                        1
+                    )
                     for key, val in replacements.items():
                         text = text.replace(key, val)
                     data = text.encode('utf-8')
