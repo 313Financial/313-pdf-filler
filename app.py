@@ -7,7 +7,7 @@ from datetime import datetime
 app = Flask(__name__)
 
 TEMPLATE_URL = "https://raw.githubusercontent.com/313Financial/313-pdf-filler/main/Concierge%20Form%20May%202025%20v2%20editable.pdf"
-DIP_TEMPLATE_URL = "https://raw.githubusercontent.com/313Financial/313-pdf-filler/main/DIP_CERT_TEMPLATE.docx"
+DIP_TEMPLATE_URL = "https://raw.githubusercontent.com/313Financial/313-pdf-filler/main/DIP_CERT_TEMPLATE_1.docx"
 
 FIELD_MAP = {
     "borrower_name": "Borrower name", "rate_product": "Rate / product",
