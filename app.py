@@ -1,41 +1,71 @@
 import base64
 import io
 import os
+import re
 import requests
+from datetime import datetime
 from flask import Flask, request, jsonify
 from pypdf import PdfReader, PdfWriter
+from docx import Document
 
 app = Flask(__name__)
 
+# ── Together Concierge PDF template ──────────────────────────────────────────
 TEMPLATE_URL = "https://raw.githubusercontent.com/313Financial/313-pdf-filler/main/Concierge%20Form%20May%2025%20v2%20editable.pdf"
 
 FIELD_MAP = {
-    "borrower_name":       "Borrower name",
-    "rate_product":        "Rate / product",
-    "use_of_funds":        "Use of funds",
-    "charge_type":         "charge type",
-    "security_address":    "Sales particulars",
-    "serviced_or_retained":"Serviced or retained",
-    "dual_rep":            "Dual rep",
-    "sols_email":          "Sols email",
-    "exit_strategy":       "Exit strategy",
-    "gross_loan":          "gross loan",
-    "net_loan":            "net loan",
-    "loan_term":           "Term",
-    "broker_fee":          "Broker fee",
+    "borrower_name":        "Borrower name",
+    "rate_product":         "Rate / product",
+    "use_of_funds":         "Use of funds",
+    "charge_type":          "charge type",
+    "security_address":     "Sales particulars",
+    "serviced_or_retained": "Serviced or retained",
+    "dual_rep":             "Dual rep",
+    "sols_email":           "Sols email",
+    "exit_strategy":        "Exit strategy",
+    "gross_loan":           "gross loan",
+    "net_loan":             "net loan",
+    "loan_term":            "Term",
+    "broker_fee":           "Broker fee",
 }
 
 CHECKBOX_MAP = {
-    "rate_product":        "Rate",
-    "use_of_funds":        "Use",
-    "charge_type":         "Charge",
-    "serviced_or_retained":"Serviced",
-    "sols_email":          "Sol email",
+    "rate_product":         "Rate",
+    "use_of_funds":         "Use",
+    "charge_type":          "Charge",
+    "serviced_or_retained": "Serviced",
+    "sols_email":           "Sol email",
 }
+
+# ── DIP Certificate Word template ────────────────────────────────────────────
+DIP_TEMPLATE_URL = "https://raw.githubusercontent.com/313Financial/313-pdf-filler/main/DIP_CERT_TEMPLATE.docx"
+
+
+def replace_placeholder(doc, placeholder, value):
+    """Replace a placeholder in all paragraphs and table cells, handling split runs."""
+    def replace_in_para(para):
+        full_text = "".join(r.text for r in para.runs)
+        if placeholder in full_text:
+            new_text = full_text.replace(placeholder, value)
+            # Clear all runs then put text in first run
+            for i, run in enumerate(para.runs):
+                run.text = new_text if i == 0 else ""
+
+    for para in doc.paragraphs:
+        replace_in_para(para)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    replace_in_para(para)
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
+
 
 @app.route("/fill-pdf", methods=["POST"])
 def fill_pdf():
@@ -68,19 +98,59 @@ def fill_pdf():
         buf = io.BytesIO()
         writer.write(buf)
         pdf_bytes = buf.getvalue()
-
         pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
 
         borrower = data.get("borrower_name", "Unknown").replace(" ", "_")
         filename = f"Together_Concierge_{borrower}.pdf"
 
-        return jsonify({
-            "pdf_base64": pdf_base64,
-            "filename": filename
-        })
+        return jsonify({"pdf_base64": pdf_base64, "filename": filename})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/generate-dip", methods=["POST"])
+def generate_dip():
+    try:
+        data = request.get_json(force=True)
+        if not data:
+            return jsonify({"error": "No JSON body"}), 400
+
+        # Download the Word template from GitHub
+        response = requests.get(DIP_TEMPLATE_URL, timeout=30)
+        if response.status_code != 200:
+            return jsonify({"error": f"Failed to download DIP template: {response.status_code}"}), 500
+
+        doc = Document(io.BytesIO(response.content))
+
+        # Map incoming fields to template placeholders
+        today = datetime.now().strftime("%d %B %Y")
+        replacements = {
+            "{{CUSTOMER_NAMES}}": data.get("customer_names", ""),
+            "{{COMPANY_NAME}}":   data.get("company_name", ""),
+            "{{LOAN_AMOUNT}}":    data.get("loan_amount", ""),
+            "{{DECISION_DATE}}":  data.get("decision_date", today),
+            "{{ADVISER_NAME}}":   data.get("adviser_name", "Paul Gray"),
+            "{{ADVISER_EMAIL}}":  data.get("adviser_email", "paul@313group.co.uk"),
+            "{{ADVISER_PHONE}}":  data.get("adviser_phone", "01912286969"),
+        }
+
+        for placeholder, value in replacements.items():
+            replace_placeholder(doc, placeholder, str(value))
+
+        buf = io.BytesIO()
+        doc.save(buf)
+        docx_bytes = buf.getvalue()
+        docx_base64 = base64.b64encode(docx_bytes).decode("utf-8")
+
+        customer = data.get("customer_names", "Unknown").replace(" ", "_")
+        filename = f"DIP_Certificate_{customer}.docx"
+
+        return jsonify({"pdf_base64": docx_base64, "filename": filename})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
