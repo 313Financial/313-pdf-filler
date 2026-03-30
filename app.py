@@ -41,23 +41,14 @@ CHECKBOX_MAP = {
 DIP_TEMPLATE_URL = "https://raw.githubusercontent.com/313Financial/313-pdf-filler/main/DIP_CERT_TEMPLATE.docx"
 
 
-def replace_placeholder(doc, placeholder, value):
-    """Replace a placeholder in all paragraphs and table cells, handling split runs."""
-    def replace_in_para(para):
-        full_text = "".join(r.text for r in para.runs)
-        if placeholder in full_text:
-            new_text = full_text.replace(placeholder, value)
-            # Clear all runs then put text in first run
-            for i, run in enumerate(para.runs):
-                run.text = new_text if i == 0 else ""
-
-    for para in doc.paragraphs:
-        replace_in_para(para)
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for para in cell.paragraphs:
-                    replace_in_para(para)
+def replace_placeholders_xml(doc, replacements):
+    """Replace all placeholders via direct XML string replacement — most reliable method."""
+    from lxml import etree
+    body_xml = etree.tostring(doc.element.body, encoding="unicode")
+    for placeholder, value in replacements.items():
+        body_xml = body_xml.replace(placeholder, value)
+    new_body = etree.fromstring(body_xml)
+    doc.element.body.getparent().replace(doc.element.body, new_body)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -135,8 +126,7 @@ def generate_dip():
             "{{ADVISER_PHONE}}":  data.get("adviser_phone", "01912286969"),
         }
 
-        for placeholder, value in replacements.items():
-            replace_placeholder(doc, placeholder, str(value))
+        replace_placeholders_xml(doc, replacements)
 
         buf = io.BytesIO()
         doc.save(buf)
