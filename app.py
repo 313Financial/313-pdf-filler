@@ -1,4 +1,5 @@
 import base64
+import html
 import io
 import os
 import zipfile
@@ -6,6 +7,7 @@ import requests
 from flask import Flask, request, jsonify
 from pypdf import PdfReader, PdfWriter
 from datetime import date
+from copy import copy
 
 app = Flask(__name__)
 
@@ -86,14 +88,18 @@ def generate_dip():
         if not data:
             return jsonify({"error": "No JSON body"}), 400
 
+        # XML-escape all values to prevent breaking the docx XML structure
+        def xe(value):
+            return html.escape(str(value), quote=False)
+
         replacements = {
-            "{{CUSTOMER_NAMES}}": data.get("customer_names", ""),
-            "{{COMPANY_NAME}}":   data.get("company_name", "N/A"),
-            "{{LOAN_AMOUNT}}":    data.get("loan_amount", ""),
-            "{{ADVISER_NAME}}":   data.get("adviser_name", "Paul Gray"),
-            "{{ADVISER_EMAIL}}":  data.get("adviser_email", "paul@313group.co.uk"),
-            "{{ADVISER_PHONE}}":  data.get("adviser_phone", "01912286969"),
-            "{{DECISION_DATE}}":  date.today().strftime("%d/%m/%Y"),
+            "{{CUSTOMER_NAMES}}": xe(data.get("customer_names", "")),
+            "{{COMPANY_NAME}}":   xe(data.get("company_name", "N/A")),
+            "{{LOAN_AMOUNT}}":    xe(data.get("loan_amount", "")),
+            "{{ADVISER_NAME}}":   xe(data.get("adviser_name", "Paul Gray")),
+            "{{ADVISER_EMAIL}}":  xe(data.get("adviser_email", "paul@313group.co.uk")),
+            "{{ADVISER_PHONE}}":  xe(data.get("adviser_phone", "01912286969")),
+            "{{DECISION_DATE}}":  xe(date.today().strftime("%d/%m/%Y")),
         }
 
         response = requests.get(DIP_TEMPLATE_URL, timeout=30)
@@ -110,7 +116,8 @@ def generate_dip():
                         for placeholder, value in replacements.items():
                             xml = xml.replace(placeholder, value)
                         data_bytes = xml.encode('utf-8')
-                    zout.writestr(item, data_bytes)
+                    new_info = copy(item)
+                    zout.writestr(new_info, data_bytes)
 
         docx_base64 = base64.b64encode(out_buf.getvalue()).decode("utf-8")
         safe_name = data.get("customer_names", "Unknown").replace(" ", "_")
