@@ -1,13 +1,13 @@
 import base64
 import io
 import os
+import re
 import requests
 from flask import Flask, request, jsonify
 from pypdf import PdfReader, PdfWriter
 from docx import Document
-from docx.shared import Pt
-import copy
 from datetime import date
+import zipfile
 
 app = Flask(__name__)
 
@@ -15,28 +15,29 @@ CONCIERGE_TEMPLATE_URL = "https://raw.githubusercontent.com/313Financial/313-pdf
 DIP_TEMPLATE_URL = "https://raw.githubusercontent.com/313Financial/313-pdf-filler/main/DIP_CERT_TEMPLATE.docx"
 
 FIELD_MAP = {
-    "borrower_name":       "Borrower name",
-    "rate_product":        "Rate / product",
-    "use_of_funds":        "Use of funds",
-    "charge_type":         "charge type",
-    "security_address":    "Sales particulars",
-    "serviced_or_retained":"Serviced or retained",
-    "dual_rep":            "Dual rep",
-    "sols_email":          "Sols email",
-    "exit_strategy":       "Exit strategy",
-    "gross_loan":          "gross loan",
-    "net_loan":            "net loan",
-    "loan_term":           "Term",
-    "broker_fee":          "Broker fee",
+    "borrower_name":        "Borrower name",
+    "rate_product":         "Rate / product",
+    "use_of_funds":         "Use of funds",
+    "charge_type":          "charge type",
+    "security_address":     "Sales particulars",
+    "serviced_or_retained": "Serviced or retained",
+    "dual_rep":             "Dual rep",
+    "sols_email":           "Sols email",
+    "exit_strategy":        "Exit strategy",
+    "gross_loan":           "gross loan",
+    "net_loan":             "net loan",
+    "loan_term":            "Term",
+    "broker_fee":           "Broker fee",
 }
 
 CHECKBOX_MAP = {
-    "rate_product":        "Rate",
-    "use_of_funds":        "Use",
-    "charge_type":         "Charge",
-    "serviced_or_retained":"Serviced",
-    "sols_email":          "Sol email",
+    "rate_product":         "Rate",
+    "use_of_funds":         "Use",
+    "charge_type":          "Charge",
+    "serviced_or_retained": "Serviced",
+    "sols_email":           "Sol email",
 }
+
 
 @app.route("/health", methods=["GET"])
 def health():
@@ -73,13 +74,10 @@ def fill_pdf():
 
         buf = io.BytesIO()
         writer.write(buf)
-        pdf_bytes = buf.getvalue()
-        pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
+        pdf_base64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
         borrower = data.get("borrower_name", "Unknown").replace(" ", "_")
-        filename = f"Together_Concierge_{borrower}.pdf"
-
-        return jsonify({"pdf_base64": pdf_base64, "filename": filename})
+        return jsonify({"pdf_base64": pdf_base64, "filename": f"Together_Concierge_{borrower}.pdf"})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -92,55 +90,41 @@ def generate_dip():
         if not data:
             return jsonify({"error": "No JSON body"}), 400
 
-        customer_names = data.get("customer_names", "")
-        company_name = data.get("company_name", "N/A")
-        loan_amount = data.get("loan_amount", "")
-        adviser_name = data.get("adviser_name", "Paul Gray")
-        adviser_email = data.get("adviser_email", "paul@313group.co.uk")
-        adviser_phone = data.get("adviser_phone", "01912286969")
-        decision_date = date.today().strftime("%d/%m/%Y")
+        replacements = {
+            "{{CUSTOMER_NAMES}}": data.get("customer_names", ""),
+            "{{COMPANY_NAME}}":   data.get("company_name", "N/A"),
+            "{{LOAN_AMOUNT}}":    data.get("loan_amount", ""),
+            "{{ADVISER_NAME}}":   data.get("adviser_name", "Paul Gray"),
+            "{{ADVISER_EMAIL}}":  data.get("adviser_email", "paul@313group.co.uk"),
+            "{{ADVISER_PHONE}}":  data.get("adviser_phone", "01912286969"),
+            "{{DECISION_DATE}}":  date.today().strftime("%d/%m/%Y"),
+        }
 
         response = requests.get(DIP_TEMPLATE_URL, timeout=30)
         if response.status_code != 200:
             return jsonify({"error": f"Failed to download DIP template: {response.status_code}"}), 500
 
-        doc = Document(io.BytesIO(response.content))
+        # Replace in raw XML to handle text boxes and split runs
+        docx_bytes = response.content
+        with zipfile.ZipFile(io.BytesIO(docx_bytes), 'r') as zin:
+            names = zin.namelist()
+            files = {}
+            for name in names:
+                files[name] = zin.read(name)
 
-        replacements = {
-            "{{customer_names}}": customer_names,
-            "{{company_name}}": company_name,
-            "{{loan_amount}}": loan_amount,
-            "{{adviser_name}}": adviser_name,
-            "{{adviser_email}}": adviser_email,
-            "{{adviser_phone}}": adviser_phone,
-            "{{decision_date}}": decision_date,
-        }
+        xml = files['word/document.xml'].decode('utf-8')
+        for placeholder, value in replacements.items():
+            xml = xml.replace(placeholder, value)
+        files['word/document.xml'] = xml.encode('utf-8')
 
-        def replace_in_paragraph(para):
-            for key, value in replacements.items():
-                if key in para.text:
-                    for run in para.runs:
-                        if key in run.text:
-                            run.text = run.text.replace(key, value)
+        out_buf = io.BytesIO()
+        with zipfile.ZipFile(out_buf, 'w', zipfile.ZIP_DEFLATED) as zout:
+            for name, content in files.items():
+                zout.writestr(name, content)
 
-        for para in doc.paragraphs:
-            replace_in_paragraph(para)
-
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    for para in cell.paragraphs:
-                        replace_in_paragraph(para)
-
-        buf = io.BytesIO()
-        doc.save(buf)
-        docx_bytes = buf.getvalue()
-        docx_base64 = base64.b64encode(docx_bytes).decode("utf-8")
-
-        safe_name = customer_names.replace(" ", "_")
-        filename = f"DIP_Certificate_{safe_name}.docx"
-
-        return jsonify({"pdf_base64": docx_base64, "filename": filename})
+        docx_base64 = base64.b64encode(out_buf.getvalue()).decode("utf-8")
+        safe_name = data.get("customer_names", "Unknown").replace(" ", "_")
+        return jsonify({"pdf_base64": docx_base64, "filename": f"DIP_Certificate_{safe_name}.docx"})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
