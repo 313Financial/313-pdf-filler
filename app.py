@@ -1,13 +1,11 @@
 import base64
 import io
 import os
-import re
+import zipfile
 import requests
 from flask import Flask, request, jsonify
 from pypdf import PdfReader, PdfWriter
-from docx import Document
 from datetime import date
-import zipfile
 
 app = Flask(__name__)
 
@@ -55,8 +53,7 @@ def fill_pdf():
         if response.status_code != 200:
             return jsonify({"error": f"Failed to download template: {response.status_code}"}), 500
 
-        template_buf = io.BytesIO(response.content)
-        reader = PdfReader(template_buf)
+        reader = PdfReader(io.BytesIO(response.content))
         writer = PdfWriter()
         writer.append(reader)
 
@@ -104,23 +101,27 @@ def generate_dip():
         if response.status_code != 200:
             return jsonify({"error": f"Failed to download DIP template: {response.status_code}"}), 500
 
-        # Replace in raw XML to handle text boxes and split runs
-        docx_bytes = response.content
-        with zipfile.ZipFile(io.BytesIO(docx_bytes), 'r') as zin:
-            names = zin.namelist()
-            files = {}
-            for name in names:
+        # Read all files from the zip
+        files = {}
+        with zipfile.ZipFile(io.BytesIO(response.content), 'r') as zin:
+            for name in zin.namelist():
                 files[name] = zin.read(name)
 
+        # Replace placeholders in the document XML
         xml = files['word/document.xml'].decode('utf-8')
         for placeholder, value in replacements.items():
             xml = xml.replace(placeholder, value)
         files['word/document.xml'] = xml.encode('utf-8')
 
+        # Write back as a valid docx (zip) preserving original compression
         out_buf = io.BytesIO()
-        with zipfile.ZipFile(out_buf, 'w', zipfile.ZIP_DEFLATED) as zout:
-            for name, content in files.items():
-                zout.writestr(name, content)
+        with zipfile.ZipFile(io.BytesIO(response.content), 'r') as zin:
+            with zipfile.ZipFile(out_buf, 'w') as zout:
+                for item in zin.infolist():
+                    if item.filename == 'word/document.xml':
+                        zout.writestr(item, files['word/document.xml'])
+                    else:
+                        zout.writestr(item, files[item.filename])
 
         docx_base64 = base64.b64encode(out_buf.getvalue()).decode("utf-8")
         safe_name = data.get("customer_names", "Unknown").replace(" ", "_")
