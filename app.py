@@ -72,7 +72,6 @@ def fill_pdf():
         buf = io.BytesIO()
         writer.write(buf)
         pdf_base64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-
         borrower = data.get("borrower_name", "Unknown").replace(" ", "_")
         return jsonify({"pdf_base64": pdf_base64, "filename": f"Together_Concierge_{borrower}.pdf"})
 
@@ -101,27 +100,17 @@ def generate_dip():
         if response.status_code != 200:
             return jsonify({"error": f"Failed to download DIP template: {response.status_code}"}), 500
 
-        # Read all files from the zip
-        files = {}
-        with zipfile.ZipFile(io.BytesIO(response.content), 'r') as zin:
-            for name in zin.namelist():
-                files[name] = zin.read(name)
-
-        # Replace placeholders in the document XML
-        xml = files['word/document.xml'].decode('utf-8')
-        for placeholder, value in replacements.items():
-            xml = xml.replace(placeholder, value)
-        files['word/document.xml'] = xml.encode('utf-8')
-
-        # Write back as a valid docx (zip) preserving original compression
         out_buf = io.BytesIO()
         with zipfile.ZipFile(io.BytesIO(response.content), 'r') as zin:
             with zipfile.ZipFile(out_buf, 'w') as zout:
                 for item in zin.infolist():
+                    data_bytes = zin.read(item.filename)
                     if item.filename == 'word/document.xml':
-                        zout.writestr(item, files['word/document.xml'])
-                    else:
-                        zout.writestr(item, files[item.filename])
+                        xml = data_bytes.decode('utf-8')
+                        for placeholder, value in replacements.items():
+                            xml = xml.replace(placeholder, value)
+                        data_bytes = xml.encode('utf-8')
+                    zout.writestr(item, data_bytes)
 
         docx_base64 = base64.b64encode(out_buf.getvalue()).decode("utf-8")
         safe_name = data.get("customer_names", "Unknown").replace(" ", "_")
