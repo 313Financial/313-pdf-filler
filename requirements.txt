@@ -3,4 +3,3 @@ pypdf
 requests
 gunicorn
 python-docx
-lxml
