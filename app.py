@@ -5,11 +5,13 @@ import os
 import zipfile
 import requests
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from pypdf import PdfReader, PdfWriter
 from datetime import date
 from copy import copy
 
 app = Flask(__name__)
+CORS(app)
 
 CONCIERGE_TEMPLATE_URL = "https://raw.githubusercontent.com/313Financial/313-pdf-filler/main/Concierge%20Form%20May%2025%20v2%20editable.pdf"
 DIP_TEMPLATE_URL = "https://raw.githubusercontent.com/313Financial/313-pdf-filler/main/DIP_CERT_TEMPLATE.docx"
